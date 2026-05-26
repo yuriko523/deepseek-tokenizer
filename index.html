@@ -1,0 +1,396 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>DeepSeek Tokenizer</title>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html { font-size: 16px; -webkit-text-size-adjust: 100%; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  background: #f5f5f7;
+  color: #1d1d1f;
+  min-height: 100vh;
+  padding: 0;
+}
+.container { max-width: 640px; margin: 0 auto; padding: 20px 16px 40px; }
+header { text-align: center; margin-bottom: 24px; }
+header h1 {
+  font-size: 1.5rem; font-weight: 700;
+  background: linear-gradient(135deg, #4F46E5, #7C3AED);
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+header p { font-size: 0.875rem; color: #86868b; margin-top: 4px; }
+.card {
+  background: #fff; border-radius: 16px; padding: 20px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.08); margin-bottom: 16px;
+}
+textarea {
+  width: 100%; border: 1.5px solid #e5e5ea; border-radius: 12px;
+  padding: 14px; font-size: 1rem; font-family: inherit;
+  resize: vertical; min-height: 120px; outline: none;
+  transition: border-color 0.2s;
+}
+textarea:focus { border-color: #4F46E5; }
+.btn-row { display: flex; gap: 10px; margin-top: 12px; }
+button {
+  flex: 1; padding: 12px 20px; border: none; border-radius: 12px;
+  font-size: 1rem; font-weight: 600; cursor: pointer;
+  transition: opacity 0.2s, transform 0.1s;
+}
+button:active { transform: scale(0.97); }
+.btn-primary {
+  background: #4F46E5; color: #fff;
+}
+.btn-primary:disabled { opacity: 0.4; cursor: not-allowed; }
+.btn-primary:not(:disabled):hover { opacity: 0.9; }
+.btn-secondary {
+  background: #f0f0f5; color: #1d1d1f;
+}
+.btn-secondary:hover { background: #e5e5ea; }
+#loading {
+  text-align: center; padding: 32px 0; color: #86868b;
+}
+.spinner {
+  width: 32px; height: 32px; border: 3px solid #e5e5ea;
+  border-top-color: #4F46E5; border-radius: 50%;
+  animation: spin 0.8s linear infinite; margin: 0 auto 12px;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+#error {
+  background: #fef2f2; border: 1px solid #fecaca;
+  border-radius: 12px; padding: 14px; color: #dc2626;
+  font-size: 0.875rem; margin-bottom: 16px; display: none;
+}
+#error.show { display: block; }
+#results { display: none; }
+#results.show { display: block; }
+.stats {
+  display: flex; justify-content: space-between;
+  font-size: 0.875rem; color: #86868b; margin-bottom: 12px;
+  padding-bottom: 12px; border-bottom: 1px solid #e5e5ea;
+}
+.table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+table { width: 100%; border-collapse: collapse; font-size: 0.875rem; }
+thead th {
+  position: sticky; top: 0; background: #f5f5f7;
+  text-align: left; padding: 10px 12px; font-weight: 600;
+  border-bottom: 1px solid #e5e5ea; color: #86868b;
+}
+tbody td {
+  padding: 8px 12px; border-bottom: 1px solid #f0f0f5;
+  font-family: "SF Mono", SFMono-Regular, Menlo, monospace; font-size: 0.8125rem;
+  word-break: break-all;
+}
+tbody tr:last-child td { border-bottom: none; }
+tbody tr:hover { background: #f9f9fb; }
+.token-str { color: #1d1d1f; }
+.token-id { color: #4F46E5; font-weight: 600; }
+.table-wrap { max-height: 60vh; overflow-y: auto; }
+@media (prefers-color-scheme: dark) {
+  body { background: #1c1c1e; color: #f5f5f7; }
+  .card { background: #2c2c2e; }
+  textarea { background: #3a3a3c; border-color: #3a3a3c; color: #f5f5f7; }
+  textarea::placeholder { color: #86868b; }
+  textarea:focus { border-color: #6366F1; }
+  .btn-secondary { background: #3a3a3c; color: #f5f5f7; }
+  .btn-secondary:hover { background: #48484a; }
+  thead th { background: #2c2c2e; color: #a1a1ab; border-bottom-color: #3a3a3c; }
+  tbody td { border-bottom-color: #3a3a3c; }
+  tbody tr:hover { background: #3a3a3c; }
+  .stats { border-bottom-color: #3a3a3c; }
+  .token-str { color: #f5f5f7; }
+}
+.hidden { display: none !important; }
+</style>
+</head>
+<body>
+<div class="container">
+  <header>
+    <h1>DeepSeek Tokenizer</h1>
+    <p>输入文本，查看 Token ID</p>
+  </header>
+
+  <div class="card">
+    <textarea id="inputText" placeholder="在此输入文本..." spellcheck="false"></textarea>
+    <div class="btn-row">
+      <button id="encodeBtn" class="btn-primary" disabled>编码</button>
+      <button id="clearBtn" class="btn-secondary">清空</button>
+    </div>
+  </div>
+
+  <div id="loading">
+    <div class="spinner"></div>
+    <p id="loadingText">正在加载词表...</p>
+  </div>
+
+  <div id="error"></div>
+
+  <div class="card" id="results">
+    <div class="stats">
+      <span id="tokenCount">共 0 个 token</span>
+      <span id="encodeTime">用时 --</span>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Token</th><th>ID</th></tr></thead>
+        <tbody id="resultsBody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<script>
+// ============================================================
+// DeepSeek Tokenizer — Pure JavaScript BPE Tokenizer
+// ============================================================
+
+// ---- GPT-2 style bytes-to-unicode mapping ----
+function buildByteEncoder() {
+  const bs = new Set();
+  // printable bytes that map to themselves
+  for (let b = 33; b <= 126; b++) bs.add(b);       // ! to ~
+  for (let b = 161; b <= 172; b++) bs.add(b);      // i to ¬
+  for (let b = 174; b <= 255; b++) bs.add(b);      // ® to ÿ
+
+  const table = {};
+  let n = 0;
+  for (let b = 0; b < 256; b++) {
+    if (bs.has(b)) {
+      table[b] = String.fromCodePoint(b);
+    } else {
+      table[b] = String.fromCodePoint(256 + n);
+      n++;
+    }
+  }
+  return table;
+}
+
+// ---- BPE Tokenizer class ----
+class DeepSeekTokenizer {
+  constructor(data) {
+    const model = data.model;
+    this.vocab = model.vocab;          // str -> id
+    this.mergeRanks = new Map();
+    model.merges.forEach((pair, i) => {
+      this.mergeRanks.set(pair, i);    // "a b" -> rank
+    });
+    this.byteEncoder = buildByteEncoder();
+    // Reverse mapping: unicode char -> byte (for decoding display)
+    this.byteDecoder = {};
+    for (const [byte, ch] of Object.entries(this.byteEncoder)) {
+      this.byteDecoder[ch] = Number(byte);
+    }
+
+    // Pre-tokenizer regex patterns
+    this.reNum = /\p{N}{1,3}/gu;
+    this.reCJK = /[一-龥぀-ゟ゠-ヿ]+/gu;
+    this.reMain = /[!"#$%&'()*+,\-./:;<=>?@\[\\\]^_`{|}~][A-Za-z]+|[^\r\n\p{L}\p{P}\p{S}]?[\p{L}\p{M}]+| ?[\p{P}\p{S}]+[\r\n]*|\s*[\r\n]+|\s+(?!\S)|\s+/gu;
+  }
+
+  // Split text by regex, keeping matches (Isolated behavior)
+  _split(text, regex) {
+    regex.lastIndex = 0;
+    const pieces = [];
+    let last = 0;
+    let m;
+    while ((m = regex.exec(text)) !== null) {
+      if (m.index > last) pieces.push(text.slice(last, m.index));
+      pieces.push(m[0]);
+      last = regex.lastIndex;
+    }
+    if (last < text.length) pieces.push(text.slice(last));
+    return pieces.filter(p => p.length > 0);
+  }
+
+  // ByteLevel encode: text -> bytes -> unicode chars
+  _byteEncode(text) {
+    const bytes = new TextEncoder().encode(text);
+    let out = '';
+    for (let i = 0; i < bytes.length; i++) {
+      out += this.byteEncoder[bytes[i]];
+    }
+    return out;
+  }
+
+  // ByteLevel decode: unicode chars -> bytes -> text (for readable display)
+  _byteDecode(text) {
+    const bytes = [];
+    for (const ch of text) {
+      const byte = this.byteDecoder[ch];
+      if (byte !== undefined) bytes.push(byte);
+    }
+    try {
+      return new TextDecoder().decode(new Uint8Array(bytes));
+    } catch {
+      return text; // fallback: show raw if decode fails
+    }
+  }
+
+  // Pre-tokenize: 4 sequential split steps + ByteLevel encode
+  _preTokenize(text) {
+    let pieces = [text];
+    // Step 1: numbers
+    pieces = pieces.flatMap(p => this._split(p, this.reNum));
+    // Step 2: CJK
+    pieces = pieces.flatMap(p => this._split(p, this.reCJK));
+    // Step 3: GPT-2 style
+    pieces = pieces.flatMap(p => this._split(p, this.reMain));
+    // Step 4: ByteLevel encode each piece
+    pieces = pieces.map(p => this._byteEncode(p));
+    return pieces;
+  }
+
+  // BPE merge on a single token piece
+  _bpe(token) {
+    const ranks = this.mergeRanks;
+    if (token.length <= 1) return [token];
+
+    let word = Array.from(token);
+    while (word.length > 1) {
+      let bestRank = Infinity;
+      let bestIdx = -1;
+      for (let i = 0; i < word.length - 1; i++) {
+        const key = word[i] + ' ' + word[i + 1];
+        const r = ranks.get(key);
+        if (r !== undefined && r < bestRank) {
+          bestRank = r;
+          bestIdx = i;
+        }
+      }
+      if (bestIdx === -1) break;
+      // merge best pair
+      const merged = word[bestIdx] + word[bestIdx + 1];
+      word = [...word.slice(0, bestIdx), merged, ...word.slice(bestIdx + 2)];
+    }
+    return word;
+  }
+
+  // Main encode: text -> token IDs
+  encode(text) {
+    const pieces = this._preTokenize(text);
+    const ids = [];
+    const tokens = [];
+    for (const piece of pieces) {
+      const subs = this._bpe(piece);
+      for (const sub of subs) {
+        const id = this.vocab[sub];
+        if (id === undefined) {
+          // If token not in vocab, try byte fallback
+          for (let i = 0; i < sub.length; i++) {
+            const ch = sub[i];
+            const chId = this.vocab[ch];
+            if (chId !== undefined) {
+              ids.push(chId);
+              tokens.push(ch);
+            }
+          }
+        } else {
+          ids.push(id);
+          tokens.push(sub);
+        }
+      }
+    }
+    // Decode tokens for display
+    const decodedTokens = tokens.map(t => this._byteDecode(t));
+    return { ids, tokens, decodedTokens };
+  }
+}
+
+// ============================================================
+// UI Logic
+// ============================================================
+const inputEl = document.getElementById('inputText');
+const encodeBtn = document.getElementById('encodeBtn');
+const clearBtn = document.getElementById('clearBtn');
+const loadingEl = document.getElementById('loading');
+const loadingText = document.getElementById('loadingText');
+const errorEl = document.getElementById('error');
+const resultsEl = document.getElementById('results');
+const resultsBody = document.getElementById('resultsBody');
+const tokenCount = document.getElementById('tokenCount');
+const encodeTime = document.getElementById('encodeTime');
+
+let tokenizer = null;
+
+// ---- Load tokenizer.json ----
+async function loadTokenizer() {
+  try {
+    loadingEl.style.display = 'block';
+    resultsEl.classList.remove('show');
+    errorEl.classList.remove('show');
+
+    const resp = await fetch('tokenizer.json');
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}: 无法加载词表文件`);
+    const data = await resp.json();
+    tokenizer = new DeepSeekTokenizer(data);
+    encodeBtn.disabled = false;
+    loadingEl.style.display = 'none';
+  } catch (err) {
+    loadingText.textContent = '加载失败';
+    errorEl.textContent = '加载 tokenizer.json 失败：' + err.message;
+    errorEl.classList.add('show');
+    loadingEl.style.display = 'none';
+  }
+}
+
+// ---- Encode ----
+function doEncode() {
+  const text = inputEl.value;
+  if (!text || !tokenizer) return;
+
+  resultsEl.classList.remove('show');
+  errorEl.classList.remove('show');
+  resultsBody.innerHTML = '';
+
+  const t0 = performance.now();
+  let result;
+  try {
+    result = tokenizer.encode(text);
+  } catch (err) {
+    errorEl.textContent = '编码出错：' + err.message;
+    errorEl.classList.add('show');
+    return;
+  }
+  const elapsed = (performance.now() - t0).toFixed(1);
+
+  // Build table rows
+  let html = '';
+  for (let i = 0; i < result.ids.length; i++) {
+    const tid = result.ids[i];
+    const tstr = result.decodedTokens[i];
+    html += `<tr><td class="token-str">${escapeHtml(tstr)}</td><td class="token-id">${tid}</td></tr>`;
+  }
+  resultsBody.innerHTML = html;
+  tokenCount.textContent = `共 ${result.ids.length} 个 token`;
+  encodeTime.textContent = `用时 ${elapsed}ms`;
+  resultsEl.classList.add('show');
+}
+
+function escapeHtml(s) {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+// ---- Event handlers ----
+encodeBtn.addEventListener('click', doEncode);
+
+clearBtn.addEventListener('click', () => {
+  inputEl.value = '';
+  resultsEl.classList.remove('show');
+  errorEl.classList.remove('show');
+});
+
+inputEl.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+    e.preventDefault();
+    doEncode();
+  }
+});
+
+// ---- Start ----
+loadTokenizer();
+</script>
+</body>
+</html>
